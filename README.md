@@ -2,6 +2,11 @@
 
 Full-stack web application for managing university student groups, assignment distribution, OneDrive submission confirmation, and professor-side completion tracking.
 
+## Live Deployment
+- **Frontend (Vercel):** https://joineazy-task1-sepia.vercel.app
+- **Backend API (Vercel Serverless + Express):** https://joineazy-task1-api.vercel.app/api/health
+- **Database:** Neon PostgreSQL (`sin1`)
+
 ## Implementation Overview
 
 ### Student Role
