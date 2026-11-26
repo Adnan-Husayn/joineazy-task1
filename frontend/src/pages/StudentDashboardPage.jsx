@@ -1,44 +1,38 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  ArrowRight,
   BookOpen,
-  Calendar,
-  CheckCircle2,
-  ExternalLink,
-  Search,
-  Send,
+  GraduationCap,
+  Layers,
+  User,
   Users,
 } from 'lucide-react';
-import { assignmentsApi, submissionsApi } from '../api/client';
+import { coursesApi, submissionsApi } from '../api/client';
 import Navbar from '../components/Navbar';
 import ProgressBar from '../components/ProgressBar';
 import StatusBadge from '../components/StatusBadge';
-import SubmissionConfirmModal from '../components/SubmissionConfirmModal';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { formatDateTime, getDueLabel } from '../utils/formatters';
+import { getCourseTheme } from '../utils/courseTheme';
 
 export default function StudentDashboardPage() {
   const { user } = useAuth();
   const { showToast } = useToast();
 
-  const [assignments, setAssignments] = useState([]);
+  const [courses, setCourses] = useState([]);
   const [progress, setProgress] = useState({ overall: null, groups: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [confirmTarget, setConfirmTarget] = useState(null);
-
   const loadData = useCallback(async () => {
     try {
       setError('');
-      const [assignmentsRes, progressRes] = await Promise.all([
-        assignmentsApi.list(),
+      const [coursesRes, progressRes] = await Promise.all([
+        coursesApi.list(),
         submissionsApi.studentProgress(),
       ]);
-      setAssignments(assignmentsRes.assignments || []);
+      setCourses(coursesRes.courses || []);
       setProgress({
         overall: progressRes.overall || null,
         groups: progressRes.groups || [],
@@ -54,27 +48,6 @@ export default function StudentDashboardPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  const filteredAssignments = useMemo(() => {
-    const term = searchQuery.trim().toLowerCase();
-    return assignments.filter((item) => {
-      if (statusFilter === 'pending' && item.status === 'submitted') return false;
-      if (statusFilter === 'submitted' && item.status !== 'submitted') return false;
-
-      if (term) {
-        const haystack = [
-          item.title,
-          item.description,
-          ...(item.targetGroups || []).map((g) => g.name),
-          ...(item.applicableGroups || []).map((g) => g.name),
-        ]
-          .join(' ')
-          .toLowerCase();
-        if (!haystack.includes(term)) return false;
-      }
-      return true;
-    });
-  }, [assignments, statusFilter, searchQuery]);
 
   const overall = progress.overall || {
     totalAssignments: 0,
@@ -96,7 +69,7 @@ export default function StudentDashboardPage() {
               Welcome, {user?.name}
             </h1>
             <p className="mt-1 text-sm text-slate-600">
-              Track group progress, open OneDrive submission links, and confirm your submissions.
+              Select an enrolled course to review assignments, OneDrive links, and submission status.
             </p>
           </div>
           <Link
@@ -104,18 +77,24 @@ export default function StudentDashboardPage() {
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
           >
             <Users className="h-4 w-4 text-indigo-600" />
-            <span>Manage Groups ({progress.groups.length})</span>
+            <span>My Groups ({progress.groups.length})</span>
           </Link>
         </div>
 
         {loading ? (
-          <div className="grid gap-6 md:grid-cols-2">
-            {[1, 2].map((n) => (
-              <div
-                key={n}
-                className="h-36 animate-pulse rounded-2xl border border-slate-200 bg-white p-6"
-              />
-            ))}
+          <div className="space-y-8">
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="h-48 animate-pulse rounded-2xl border border-slate-200 bg-white" />
+              <div className="h-48 animate-pulse rounded-2xl border border-slate-200 bg-white lg:col-span-2" />
+            </div>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {[1, 2, 3, 4].map((n) => (
+                <div
+                  key={n}
+                  className="h-56 animate-pulse rounded-2xl border border-slate-200 bg-white"
+                />
+              ))}
+            </div>
           </div>
         ) : error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
@@ -130,8 +109,8 @@ export default function StudentDashboardPage() {
           </div>
         ) : (
           <>
-            {/* Overall + Per-Group Progress Section */}
-            <section className="mb-8 grid gap-6 lg:grid-cols-3">
+            {/* Top-Level Quick Stats + Group Summary */}
+            <section className="mb-10 grid gap-6 lg:grid-cols-3">
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-1">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -166,7 +145,7 @@ export default function StudentDashboardPage() {
                 <div className="mt-4">
                   <ProgressBar
                     value={overall.completionRate}
-                    sublabel={`${overall.completedAssignments} of ${overall.totalAssignments} completed`}
+                    sublabel={`${overall.completedAssignments} of ${overall.totalAssignments} completed across ${courses.length} courses`}
                   />
                 </div>
 
@@ -175,7 +154,7 @@ export default function StudentDashboardPage() {
                     <p className="text-lg font-bold tabular-nums text-emerald-600">
                       {overall.completedAssignments}
                     </p>
-                    <p className="text-xs text-slate-500">Submitted</p>
+                    <p className="text-xs text-slate-500">Acknowledged</p>
                   </div>
                   <div>
                     <p className="text-lg font-bold tabular-nums text-amber-600">
@@ -196,17 +175,17 @@ export default function StudentDashboardPage() {
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <h2 className="text-base font-semibold text-slate-900">
-                      Group Progress Overview
+                      Your Group Teams
                     </h2>
                     <p className="text-xs text-slate-500">
-                      Completion status across each group you belong to
+                      Group leaders acknowledge submissions for the whole team
                     </p>
                   </div>
                   <Link
                     to="/student/groups"
                     className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
                   >
-                    View all groups →
+                    Manage groups →
                   </Link>
                 </div>
 
@@ -217,7 +196,7 @@ export default function StudentDashboardPage() {
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
                       Create a group and invite teammates by email or Student ID to collaborate on
-                      submissions.
+                      group assignments.
                     </p>
                     <Link
                       to="/student/groups"
@@ -260,7 +239,7 @@ export default function StudentDashboardPage() {
                         <ProgressBar
                           size="sm"
                           value={grp.completionRate}
-                          sublabel={`${grp.completedAssignments}/${grp.totalAssignments} assignments`}
+                          sublabel={`${grp.completedAssignments}/${grp.totalAssignments} group assignments`}
                         />
                       </div>
                     ))}
@@ -269,224 +248,131 @@ export default function StudentDashboardPage() {
               </div>
             </section>
 
-            {/* Assignments Section */}
+            {/* Enrolled Courses Grid */}
             <section>
-              <div className="mb-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="h-5 w-5 text-indigo-600" />
-                  <h2 className="text-lg font-semibold text-slate-900">Your Assignments</h2>
+              <div className="mb-5 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Layers className="h-5 w-5 text-indigo-600" />
+                  <h2 className="text-lg font-semibold text-slate-900">Enrolled Courses</h2>
                   <span className="rounded-full bg-slate-200/80 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
-                    {filteredAssignments.length}
+                    {courses.length}
                   </span>
-                </div>
-
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
-                    {[
-                      { id: 'all', label: 'All' },
-                      { id: 'pending', label: 'Action Needed' },
-                      { id: 'submitted', label: 'Submitted' },
-                    ].map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setStatusFilter(tab.id)}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                          statusFilter === tab.id
-                            ? 'bg-indigo-600 text-white shadow-sm'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search assignments..."
-                      className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 sm:w-64"
-                    />
-                  </div>
                 </div>
               </div>
 
-              {filteredAssignments.length === 0 ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-                  <p className="text-sm font-medium text-slate-700">
-                    No assignments match the current filter.
+              {courses.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center shadow-sm">
+                  <BookOpen className="mx-auto h-8 w-8 text-slate-400" />
+                  <p className="mt-3 text-sm font-medium text-slate-700">
+                    You are not enrolled in any courses yet.
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    Check back later or clear your search filter.
+                    Ask your professor to enroll your Student ID in a course.
                   </p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {filteredAssignments.map((assignment) => (
-                    <article
-                      key={assignment.id}
-                      className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md"
-                    >
-                      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-                        <div className="flex-1 space-y-2.5">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <StatusBadge
-                              status={assignment.status}
-                              isOverdue={assignment.isOverdue}
-                              labelOverride={
-                                assignment.status === 'partial'
-                                  ? `Partial (${assignment.groupStatuses.filter((g) => g.submitted).length}/${assignment.groupStatuses.length} groups)`
-                                  : undefined
-                              }
-                            />
-                            <span className="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">
-                              {assignment.targetType === 'all'
-                                ? 'All Students'
-                                : `Assigned to: ${assignment.applicableGroups.map((g) => g.name).join(', ')}`}
-                            </span>
-                            <span
-                              className={`inline-flex items-center gap-1 text-xs font-medium ${
-                                assignment.isOverdue ? 'text-rose-600' : 'text-slate-500'
-                              }`}
-                            >
-                              <Calendar className="h-3.5 w-3.5" />
-                              {getDueLabel(assignment.dueDate, assignment.status)} •{' '}
-                              {formatDateTime(assignment.dueDate)}
-                            </span>
-                          </div>
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {courses.map((course) => {
+                    const theme = getCourseTheme(course.accentColor);
+                    const isComplete =
+                      course.totalAssignments > 0 &&
+                      course.completedAssignments === course.totalAssignments;
 
-                          <h3 className="text-lg font-semibold text-slate-900">
-                            {assignment.title}
-                          </h3>
+                    return (
+                      <Link
+                        key={course.id}
+                        to={`/student/courses/${course.id}`}
+                        className={`group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${theme.ring}`}
+                      >
+                        <div className={`h-1.5 w-full ${theme.strip}`} />
 
-                          {assignment.description && (
-                            <p className="text-sm leading-relaxed text-slate-600">
-                              {assignment.description}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="flex shrink-0 flex-wrap items-center gap-2.5">
-                          <a
-                            href={assignment.onedriveLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                            <span>Open OneDrive Link</span>
-                          </a>
-
-                          {assignment.canSubmit && (
-                            <button
-                              type="button"
-                              onClick={() => setConfirmTarget(assignment)}
-                              className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
-                            >
-                              <Send className="h-4 w-4" />
-                              <span>Yes, I have submitted</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Submission Confirmation Details */}
-                      {(assignment.groupStatuses.length > 0 || assignment.individualSubmission) && (
-                        <div className="mt-5 border-t border-slate-100 pt-4">
-                          {assignment.groupStatuses.length > 0 ? (
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              {assignment.groupStatuses.map((gs) => (
-                                <div
-                                  key={gs.groupId}
-                                  className={`flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-xs ${
-                                    gs.submitted
-                                      ? 'border-emerald-200 bg-emerald-50/70'
-                                      : 'border-slate-200 bg-slate-50/70'
-                                  }`}
+                        <div className="flex flex-1 flex-col justify-between p-6">
+                          <div>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded-lg border px-2.5 py-0.5 text-xs font-bold tracking-wide ${theme.badge}`}
                                 >
-                                  <div className="space-y-1">
-                                    <p className="font-semibold text-slate-900">{gs.groupName}</p>
-                                    {gs.submitted && gs.submission ? (
-                                      <>
-                                        <p className="text-emerald-800">
-                                          Confirmed by{' '}
-                                          <span className="font-semibold">
-                                            {gs.submission.confirmedByName}
-                                          </span>{' '}
-                                          on {formatDateTime(gs.submission.confirmedAt)}
-                                        </p>
-                                        {gs.submission.note && (
-                                          <p className="italic text-slate-600">
-                                            “{gs.submission.note}”
-                                          </p>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <p className="text-slate-500">
-                                        Awaiting OneDrive upload confirmation from any group member
-                                      </p>
-                                    )}
-                                  </div>
-                                  {gs.submitted ? (
-                                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 font-semibold text-emerald-800">
-                                      <CheckCircle2 className="h-3.5 w-3.5" />
-                                      Submitted
-                                    </span>
-                                  ) : (
-                                    <span className="shrink-0 rounded-full bg-slate-200 px-2.5 py-0.5 font-medium text-slate-700">
-                                      Pending
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            assignment.individualSubmission && (
-                              <div className="flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-xs">
-                                <div className="space-y-1">
-                                  <p className="font-semibold text-emerald-900">
-                                    Individual Submission Verified
-                                  </p>
-                                  <p className="text-emerald-800">
-                                    Confirmed by {assignment.individualSubmission.confirmedByName}{' '}
-                                    on {formatDateTime(assignment.individualSubmission.confirmedAt)}
-                                  </p>
-                                  {assignment.individualSubmission.note && (
-                                    <p className="italic text-slate-600">
-                                      “{assignment.individualSubmission.note}”
-                                    </p>
-                                  )}
-                                </div>
-                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 font-semibold text-emerald-800">
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                  Submitted
+                                  {course.code}
+                                </span>
+                                <span className="text-xs font-medium text-slate-400">
+                                  {course.semester}
                                 </span>
                               </div>
-                            )
-                          )}
+                              <StatusBadge
+                                status={
+                                  isComplete
+                                    ? 'completed_group'
+                                    : course.overdueAssignments > 0
+                                      ? 'overdue'
+                                      : course.completionRate > 0
+                                        ? 'partial'
+                                        : 'pending'
+                                }
+                                labelOverride={
+                                  course.totalAssignments === 0
+                                    ? 'No Tasks'
+                                    : isComplete
+                                      ? '100% Complete'
+                                      : course.overdueAssignments > 0
+                                        ? `${course.overdueAssignments} Overdue`
+                                        : `${course.completionRate}% Done`
+                                }
+                              />
+                            </div>
+
+                            <h3 className="mt-3 text-lg font-bold tracking-tight text-slate-900 group-hover:text-indigo-700">
+                              {course.title}
+                            </h3>
+
+                            {course.description && (
+                              <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">
+                                {course.description}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="mt-5 space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                              <span className="inline-flex items-center gap-1.5 font-medium text-slate-700">
+                                <GraduationCap className="h-3.5 w-3.5 text-slate-400" />
+                                {course.professorName}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
+                                  <User className="h-3 w-3" />
+                                  {course.individualCount} Ind
+                                </span>
+                                <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
+                                  <Users className="h-3 w-3" />
+                                  {course.groupCount} Grp
+                                </span>
+                              </div>
+                            </div>
+
+                            <ProgressBar
+                              size="sm"
+                              value={course.completionRate}
+                              colorClass={isComplete ? 'bg-emerald-500' : theme.bar}
+                              label={`${course.completedAssignments} of ${course.totalAssignments} assignments`}
+                              sublabel={`${course.completionRate}%`}
+                            />
+
+                            <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs font-semibold text-indigo-600">
+                              <span>Open course assignments</span>
+                              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                            </div>
+                          </div>
                         </div>
-                      )}
-                    </article>
-                  ))}
+                      </Link>
+                    );
+                  })}
                 </div>
               )}
             </section>
           </>
         )}
       </main>
-
-      <SubmissionConfirmModal
-        assignment={confirmTarget}
-        onClose={() => setConfirmTarget(null)}
-        onConfirmed={() => {
-          setConfirmTarget(null);
-          loadData();
-        }}
-      />
     </div>
   );
 }

@@ -2,10 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowRight,
+  BookMarked,
   BookOpen,
   CheckCircle2,
   Clock,
+  Layers,
+  Plus,
   TrendingUp,
+  User,
   Users,
 } from 'lucide-react';
 import {
@@ -18,9 +23,12 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { submissionsApi } from '../api/client';
+import { coursesApi, submissionsApi } from '../api/client';
+import CreateCourseModal from '../components/CreateCourseModal';
 import Navbar from '../components/Navbar';
+import ProgressBar from '../components/ProgressBar';
 import { useToast } from '../context/ToastContext';
+import { getCourseTheme } from '../utils/courseTheme';
 import { formatDateTime } from '../utils/formatters';
 
 function AssignmentTooltip({ active, payload }) {
@@ -28,11 +36,23 @@ function AssignmentTooltip({ active, payload }) {
   const data = payload[0].payload;
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg">
-      <p className="font-semibold text-slate-900">{data.title}</p>
-      <p className="mt-1.5 text-indigo-600">
-        Group Completion: <span className="font-semibold">{data.groupCompletionRate}%</span> (
-        {data.submittedGroups}/{data.eligibleGroups} groups)
-      </p>
+      <div className="flex items-center gap-1.5">
+        {data.courseCode && (
+          <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
+            {data.courseCode}
+          </span>
+        )}
+        <span className="text-[10px] font-semibold uppercase text-slate-400">
+          {data.submissionType}
+        </span>
+      </div>
+      <p className="mt-1 font-semibold text-slate-900">{data.title}</p>
+      {data.submissionType === 'group' && (
+        <p className="mt-1.5 text-indigo-600">
+          Group Completion: <span className="font-semibold">{data.groupCompletionRate}%</span> (
+          {data.submittedGroups}/{data.eligibleGroups} groups)
+        </p>
+      )}
       <p className="mt-0.5 text-emerald-600">
         Student Coverage: <span className="font-semibold">{data.studentCompletionRate}%</span> (
         {data.submittedStudents}/{data.eligibleStudents} students)
@@ -50,7 +70,7 @@ function GroupTooltip({ active, payload }) {
       <p className="mt-1 text-slate-500">{data.memberCount} members</p>
       <p className="mt-1 text-indigo-600">
         Completion: <span className="font-semibold">{data.completionRate}%</span> (
-        {data.completedAssignments}/{data.totalAssignments} assignments)
+        {data.completedAssignments}/{data.totalAssignments} group assignments)
       </p>
     </div>
   );
@@ -59,27 +79,34 @@ function GroupTooltip({ active, payload }) {
 export default function AdminAnalyticsPage() {
   const { showToast } = useToast();
   const [analytics, setAnalytics] = useState(null);
+  const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [createCourseOpen, setCreateCourseOpen] = useState(false);
 
-  const loadAnalytics = useCallback(async () => {
+  const loadDashboard = useCallback(async () => {
     try {
       setError('');
-      const res = await submissionsApi.analytics();
-      setAnalytics(res);
+      const [analyticsRes, coursesRes] = await Promise.all([
+        submissionsApi.analytics(),
+        coursesApi.list(),
+      ]);
+      setAnalytics(analyticsRes);
+      setCourses(coursesRes.courses || []);
     } catch (err) {
-      setError(err.message || 'Failed to load analytics');
-      showToast(err.message || 'Failed to load analytics', 'error');
+      setError(err.message || 'Failed to load dashboard');
+      showToast(err.message || 'Failed to load dashboard', 'error');
     } finally {
       setLoading(false);
     }
   }, [showToast]);
 
   useEffect(() => {
-    loadAnalytics();
-  }, [loadAnalytics]);
+    loadDashboard();
+  }, [loadDashboard]);
 
   const summary = analytics?.summary || {
+    totalCourses: 0,
     totalAssignments: 0,
     totalStudents: 0,
     totalGroups: 0,
@@ -100,45 +127,63 @@ export default function AdminAnalyticsPage() {
         <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              Professor Analytics Dashboard
+              Professor Dashboard & Analytics
             </h1>
             <p className="mt-1 text-sm text-slate-600">
-              Monitor submission completion across assignments and student groups.
+              Manage courses, monitor individual and group submissions, and inspect completion metrics.
             </p>
           </div>
           <div className="flex flex-wrap gap-2.5">
+            <button
+              type="button"
+              onClick={() => setCreateCourseOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
+            >
+              <Plus className="h-4 w-4" />
+              Create Course
+            </button>
             <Link
               to="/admin/assignments"
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
             >
               <BookOpen className="h-4 w-4 text-indigo-600" />
-              Manage Assignments
+              Assignments
             </Link>
             <Link
               to="/admin/tracking"
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              <CheckCircle2 className="h-4 w-4" />
-              View Detailed Tracking
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              Submission Tracking
             </Link>
           </div>
         </div>
 
         {loading ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[1, 2, 3, 4].map((n) => (
-              <div
-                key={n}
-                className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-white"
-              />
-            ))}
+          <div className="space-y-8">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[1, 2, 3, 4].map((n) => (
+                <div
+                  key={n}
+                  className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-white"
+                />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {[1, 2, 3].map((n) => (
+                <div
+                  key={n}
+                  className="h-52 animate-pulse rounded-2xl border border-slate-200 bg-white"
+                />
+              ))}
+            </div>
           </div>
         ) : error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-800">
             <p className="font-semibold">{error}</p>
             <button
               type="button"
-              onClick={loadAnalytics}
+              onClick={loadDashboard}
               className="mt-3 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white"
             >
               Retry
@@ -151,24 +196,27 @@ export default function AdminAnalyticsPage() {
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Active Assignments
+                    Courses & Tasks
                   </span>
                   <div className="rounded-lg bg-indigo-50 p-2 text-indigo-600">
-                    <BookOpen className="h-4 w-4" />
+                    <BookMarked className="h-4 w-4" />
                   </div>
                 </div>
                 <p className="mt-3 text-3xl font-bold tabular-nums text-slate-900">
-                  {summary.totalAssignments}
+                  {courses.length}{' '}
+                  <span className="text-base font-medium text-slate-500">
+                    / {summary.totalAssignments} tasks
+                  </span>
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Across {summary.totalGroups} groups & {summary.totalStudents} students
+                  {summary.totalGroups} groups & {summary.totalStudents} enrolled students
                 </p>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Group Completion
+                    Group Leader Ack Rate
                   </span>
                   <div className="rounded-lg bg-emerald-50 p-2 text-emerald-600">
                     <TrendingUp className="h-4 w-4" />
@@ -204,7 +252,7 @@ export default function AdminAnalyticsPage() {
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Overdue Group Tasks
+                    Overdue Pending
                   </span>
                   <div className="rounded-lg bg-rose-50 p-2 text-rose-600">
                     <AlertTriangle className="h-4 w-4" />
@@ -214,9 +262,104 @@ export default function AdminAnalyticsPage() {
                   {summary.overduePendingCount}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Past-due group submissions still pending
+                  Past-due slots awaiting acknowledgment
                 </p>
               </div>
+            </section>
+
+            {/* Courses Taught Grid */}
+            <section className="mb-10">
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-5 w-5 text-indigo-600" />
+                  <h2 className="text-lg font-semibold text-slate-900">Courses Taught</h2>
+                  <span className="rounded-full bg-slate-200/80 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
+                    {courses.length}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCreateCourseOpen(true)}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                >
+                  + Add course
+                </button>
+              </div>
+
+              {courses.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+                  <p className="text-sm font-medium text-slate-700">No courses created yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => setCreateCourseOpen(true)}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Create Your First Course
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {courses.map((course) => {
+                    const theme = getCourseTheme(course.accentColor);
+                    return (
+                      <Link
+                        key={course.id}
+                        to={`/admin/courses/${course.id}`}
+                        className={`group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${theme.ring}`}
+                      >
+                        <div className={`h-1.5 w-full ${theme.strip}`} />
+                        <div className="flex flex-1 flex-col justify-between p-5">
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={`rounded-lg border px-2.5 py-0.5 text-xs font-bold ${theme.badge}`}
+                              >
+                                {course.code}
+                              </span>
+                              <span className="text-xs font-medium text-slate-400">
+                                {course.semester}
+                              </span>
+                            </div>
+                            <h3 className="mt-2.5 text-base font-bold text-slate-900 group-hover:text-indigo-700">
+                              {course.title}
+                            </h3>
+                            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                              <span className="inline-flex items-center gap-1">
+                                <Users className="h-3.5 w-3.5 text-slate-400" />
+                                {course.studentCount} students
+                              </span>
+                              <span className="inline-flex items-center gap-1">
+                                <BookOpen className="h-3.5 w-3.5 text-slate-400" />
+                                {course.assignmentCount} assignments
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 space-y-3">
+                            <ProgressBar
+                              size="sm"
+                              value={course.completionRate}
+                              colorClass={
+                                course.completionRate === 100 && course.totalSlots > 0
+                                  ? 'bg-emerald-500'
+                                  : theme.bar
+                              }
+                              label={`${course.submittedCount} submitted • ${course.pendingCount} pending`}
+                              sublabel={`${course.completionRate}%`}
+                            />
+
+                            <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs font-semibold text-indigo-600">
+                              <span>Manage course & submissions</span>
+                              <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
+                            </div>
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
             {/* Recharts Analytics */}
@@ -227,7 +370,7 @@ export default function AdminAnalyticsPage() {
                     Per-Assignment Completion Rate
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Percentage of eligible groups and students confirmed per assignment
+                    Group completion % and student coverage % across assignments
                   </p>
                 </div>
 
@@ -282,7 +425,7 @@ export default function AdminAnalyticsPage() {
                     Per-Group Performance
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Submission completion percentage across each registered student group
+                    Completion percentage across each registered student group
                   </p>
                 </div>
 
@@ -331,10 +474,10 @@ export default function AdminAnalyticsPage() {
               <div className="mb-4 flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-semibold text-slate-900">
-                    Recent Submission Confirmations
+                    Recent Submission Acknowledgments
                   </h2>
                   <p className="text-xs text-slate-500">
-                    Latest verified OneDrive upload confirmations from students
+                    Latest verified OneDrive upload confirmations from students and group leaders
                   </p>
                 </div>
                 <Link
@@ -353,15 +496,36 @@ export default function AdminAnalyticsPage() {
                       className="flex flex-col justify-between gap-2 py-3.5 sm:flex-row sm:items-center"
                     >
                       <div>
-                        <p className="text-sm font-medium text-slate-900">
-                          <span className="font-semibold">{item.confirmedByName}</span>{' '}
-                          <span className="text-slate-500">confirmed</span>{' '}
-                          <span className="font-semibold text-indigo-700">
-                            {item.assignmentTitle}
-                          </span>{' '}
-                          <span className="text-slate-500">for</span>{' '}
-                          <span className="font-medium text-slate-800">{item.groupName}</span>
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-900">
+                          {item.courseCode && (
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-700">
+                              {item.courseCode}
+                            </span>
+                          )}
+                          <span
+                            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                              item.submissionType === 'individual'
+                                ? 'bg-sky-50 text-sky-700'
+                                : 'bg-violet-50 text-violet-700'
+                            }`}
+                          >
+                            {item.submissionType === 'individual' ? (
+                              <User className="h-3 w-3" />
+                            ) : (
+                              <Users className="h-3 w-3" />
+                            )}
+                            {item.submissionType === 'individual' ? 'Individual' : 'Group'}
+                          </span>
+                          <span>
+                            <span className="font-semibold">{item.confirmedByName}</span>{' '}
+                            <span className="text-slate-500">acknowledged</span>{' '}
+                            <span className="font-semibold text-indigo-700">
+                              {item.assignmentTitle}
+                            </span>{' '}
+                            <span className="text-slate-500">for</span>{' '}
+                            <span className="font-medium text-slate-800">{item.groupName}</span>
+                          </span>
+                        </div>
                         {item.note && (
                           <p className="mt-0.5 text-xs italic text-slate-500">“{item.note}”</p>
                         )}
@@ -375,13 +539,23 @@ export default function AdminAnalyticsPage() {
                 </div>
               ) : (
                 <p className="py-6 text-center text-sm text-slate-500">
-                  No submission confirmations recorded yet.
+                  No submission acknowledgments recorded yet.
                 </p>
               )}
             </section>
           </>
         )}
       </main>
+
+      {createCourseOpen && (
+        <CreateCourseModal
+          onClose={() => setCreateCourseOpen(false)}
+          onCreated={() => {
+            setCreateCourseOpen(false);
+            loadDashboard();
+          }}
+        />
+      )}
     </div>
   );
 }

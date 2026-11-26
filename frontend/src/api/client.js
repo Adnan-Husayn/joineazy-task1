@@ -73,6 +73,18 @@ export const authApi = {
   me: () => request('/auth/me'),
 };
 
+export const coursesApi = {
+  list: () => request('/courses'),
+  get: (id) => request(`/courses/${id}`),
+  create: (data) =>
+    request('/courses', { method: 'POST', body: JSON.stringify(data) }),
+  enroll: (courseId, identifier) =>
+    request(`/courses/${courseId}/enroll`, {
+      method: 'POST',
+      body: JSON.stringify({ identifier }),
+    }),
+};
+
 export const groupsApi = {
   list: () => request('/groups'),
   get: (id) => request(`/groups/${id}`),
@@ -90,7 +102,10 @@ export const groupsApi = {
 };
 
 export const assignmentsApi = {
-  list: () => request('/assignments'),
+  list: (courseId) => {
+    const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : '';
+    return request(`/assignments${qs}`);
+  },
   get: (id) => request(`/assignments/${id}`),
   create: (data) =>
     request('/assignments', { method: 'POST', body: JSON.stringify(data) }),
@@ -106,6 +121,7 @@ export const submissionsApi = {
   studentProgress: () => request('/submissions/progress'),
   tracking: (params = {}) => {
     const query = new URLSearchParams();
+    if (params.courseId) query.set('courseId', params.courseId);
     if (params.assignmentId) query.set('assignmentId', params.assignmentId);
     if (params.status && params.status !== 'all') query.set('status', params.status);
     if (params.search) query.set('search', params.search);

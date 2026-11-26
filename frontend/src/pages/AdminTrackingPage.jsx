@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Search, User, Users } from 'lucide-react';
-import { assignmentsApi, submissionsApi } from '../api/client';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Crown, Search, User, Users } from 'lucide-react';
+import { assignmentsApi, coursesApi, submissionsApi } from '../api/client';
 import Navbar from '../components/Navbar';
 import StatusBadge from '../components/StatusBadge';
 import { useToast } from '../context/ToastContext';
@@ -8,28 +9,49 @@ import { formatDateTime } from '../utils/formatters';
 
 export default function AdminTrackingPage() {
   const { showToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [viewMode, setViewMode] = useState('group');
+  const [courseId, setCourseId] = useState(searchParams.get('courseId') || '');
   const [assignmentId, setAssignmentId] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
+  const [courses, setCourses] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [groupWise, setGroupWise] = useState([]);
   const [studentWise, setStudentWise] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    assignmentsApi
-      .list()
-      .then((res) => setAssignments(res.assignments || []))
+    Promise.all([coursesApi.list(), assignmentsApi.list()])
+      .then(([coursesRes, assignmentsRes]) => {
+        setCourses(coursesRes.courses || []);
+        setAssignments(assignmentsRes.assignments || []);
+      })
       .catch(() => {});
   }, []);
+
+  const visibleAssignmentOptions = useMemo(() => {
+    if (!courseId) return assignments;
+    return assignments.filter((a) => String(a.courseId) === String(courseId));
+  }, [assignments, courseId]);
+
+  function handleCourseChange(nextCourseId) {
+    setCourseId(nextCourseId);
+    setAssignmentId('');
+    if (nextCourseId) {
+      setSearchParams({ courseId: nextCourseId });
+    } else {
+      setSearchParams({});
+    }
+  }
 
   const loadTracking = useCallback(async () => {
     setLoading(true);
     try {
       const res = await submissionsApi.tracking({
+        courseId: courseId || undefined,
         assignmentId: assignmentId || undefined,
         status: statusFilter,
         search: searchQuery.trim() || undefined,
@@ -41,7 +63,7 @@ export default function AdminTrackingPage() {
     } finally {
       setLoading(false);
     }
-  }, [assignmentId, statusFilter, searchQuery, showToast]);
+  }, [courseId, assignmentId, statusFilter, searchQuery, showToast]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -63,7 +85,7 @@ export default function AdminTrackingPage() {
               Submission Tracking
             </h1>
             <p className="mt-1 text-sm text-slate-600">
-              Inspect group-wise and student-wise confirmation status, timestamps, and notes.
+              Inspect group-wise leader acknowledgments and student-wise individual & group status.
             </p>
           </div>
 
@@ -96,7 +118,29 @@ export default function AdminTrackingPage() {
         </div>
 
         {/* Filters */}
-        <div className="mb-6 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-3">
+        <div className="mb-6 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label
+              htmlFor="filter-course"
+              className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500"
+            >
+              Course
+            </label>
+            <select
+              id="filter-course"
+              value={courseId}
+              onChange={(e) => handleCourseChange(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            >
+              <option value="">All Courses</option>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label
               htmlFor="filter-assignment"
@@ -111,8 +155,9 @@ export default function AdminTrackingPage() {
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             >
               <option value="">All Assignments</option>
-              {assignments.map((a) => (
+              {visibleAssignmentOptions.map((a) => (
                 <option key={a.id} value={a.id}>
+                  {a.courseCode ? `[${a.courseCode}] ` : ''}
                   {a.title}
                 </option>
               ))}
@@ -156,8 +201,8 @@ export default function AdminTrackingPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={
                   viewMode === 'group'
-                    ? 'Group name, member, or assignment...'
-                    : 'Student name, ID, email, or group...'
+                    ? 'Course, group, leader, or task...'
+                    : 'Course, student, ID, or group...'
                 }
                 className="w-full rounded-xl border border-slate-300 py-2 pl-9 pr-3.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               />
@@ -177,7 +222,7 @@ export default function AdminTrackingPage() {
                 No tracking rows match your filters.
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Try clearing the search query or changing the assignment/status filter.
+                Try clearing the search query or changing the course, assignment, or status filter.
               </p>
             </div>
           ) : (
@@ -188,9 +233,9 @@ export default function AdminTrackingPage() {
                     <th className="px-5 py-3.5">
                       {viewMode === 'group' ? 'Group' : 'Student'}
                     </th>
-                    <th className="px-5 py-3.5">Assignment</th>
+                    <th className="px-5 py-3.5">Course & Assignment</th>
                     <th className="px-5 py-3.5">Status</th>
-                    <th className="px-5 py-3.5">Confirmed By</th>
+                    <th className="px-5 py-3.5">Acknowledged By</th>
                     <th className="px-5 py-3.5">Timestamp & Note</th>
                   </tr>
                 </thead>
@@ -203,11 +248,27 @@ export default function AdminTrackingPage() {
                         >
                           <td className="px-5 py-4 align-top">
                             <p className="font-semibold text-slate-900">{row.groupName}</p>
+                            {row.leaderName && (
+                              <p className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-amber-700">
+                                <Crown className="h-3 w-3" />
+                                Leader: {row.leaderName}
+                              </p>
+                            )}
                             <p className="mt-0.5 text-xs text-slate-500">
                               {row.members.map((m) => m.name).join(', ') || 'No members'}
                             </p>
                           </td>
                           <td className="px-5 py-4 align-top">
+                            <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                              {row.courseCode && (
+                                <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-bold text-indigo-700">
+                                  {row.courseCode}
+                                </span>
+                              )}
+                              <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-semibold text-violet-700">
+                                Group
+                              </span>
+                            </div>
                             <p className="font-medium text-slate-900">{row.assignmentTitle}</p>
                             <p className="mt-0.5 text-xs text-slate-500">
                               Due {formatDateTime(row.dueDate)}
@@ -229,7 +290,9 @@ export default function AdminTrackingPage() {
                                 )}
                               </div>
                             ) : (
-                              <span className="text-xs text-slate-400">Not confirmed yet</span>
+                              <span className="text-xs text-slate-400">
+                                Waiting for leader ({row.leaderName || 'Group Leader'})
+                              </span>
                             )}
                           </td>
                           <td className="px-5 py-4 align-top">
@@ -276,13 +339,29 @@ export default function AdminTrackingPage() {
                                         : 'bg-slate-100 text-slate-600'
                                     }`}
                                   >
-                                    {gs.groupName}: {gs.submitted ? 'Submitted' : 'Pending'}
+                                    {gs.groupName}: {gs.submitted ? 'Acknowledged' : 'Pending'}
                                   </span>
                                 ))}
                               </div>
                             )}
                           </td>
                           <td className="px-5 py-4 align-top">
+                            <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                              {row.courseCode && (
+                                <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[11px] font-bold text-indigo-700">
+                                  {row.courseCode}
+                                </span>
+                              )}
+                              <span
+                                className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                                  row.submissionType === 'individual'
+                                    ? 'bg-sky-50 text-sky-700'
+                                    : 'bg-violet-50 text-violet-700'
+                                }`}
+                              >
+                                {row.submissionType === 'individual' ? 'Individual' : 'Group'}
+                              </span>
+                            </div>
                             <p className="font-medium text-slate-900">{row.assignmentTitle}</p>
                             <p className="mt-0.5 text-xs text-slate-500">
                               Due {formatDateTime(row.dueDate)}
@@ -301,11 +380,16 @@ export default function AdminTrackingPage() {
                           </td>
                           <td className="px-5 py-4 align-top">
                             {row.confirmedByName ? (
-                              <span className="font-medium text-slate-900">
-                                {row.confirmedByName}
-                              </span>
+                              <div>
+                                <span className="font-medium text-slate-900">
+                                  {row.confirmedByName}
+                                </span>
+                                {row.submissionType === 'group' && (
+                                  <p className="text-xs text-slate-500">Group Leader</p>
+                                )}
+                              </div>
                             ) : (
-                              <span className="text-xs text-slate-400">Not confirmed yet</span>
+                              <span className="text-xs text-slate-400">Not acknowledged yet</span>
                             )}
                           </td>
                           <td className="px-5 py-4 align-top">

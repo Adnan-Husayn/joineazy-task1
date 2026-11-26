@@ -1,8 +1,19 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { GraduationCap, Lock, Mail, Sparkles, UserCheck } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  GraduationCap,
+  Loader2,
+  Lock,
+  Mail,
+  Sparkles,
+  UserCheck,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -11,12 +22,36 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [touched, setTouched] = useState({ email: false, password: false });
+  const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const fieldErrors = useMemo(() => {
+    const errs = {};
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      errs.email = 'Email address is required.';
+    } else if (!EMAIL_REGEX.test(trimmedEmail)) {
+      errs.email = 'Enter a valid email address (e.g. name@joineazy.edu).';
+    }
+
+    if (!password) {
+      errs.password = 'Password is required.';
+    } else if (password.length < 6) {
+      errs.password = 'Password must be at least 6 characters.';
+    }
+    return errs;
+  }, [email, password]);
+
+  const showEmailError = (touched.email || submitted) && fieldErrors.email;
+  const showPasswordError = (touched.password || submitted) && fieldErrors.password;
 
   function fillDemoStudent() {
     setEmail('adnan@joineazy.edu');
     setPassword('Student@123');
+    setTouched({ email: false, password: false });
+    setSubmitted(false);
     setError('');
     showToast('Filled demo student credentials (STU-2026-001)', 'info');
   }
@@ -24,21 +59,28 @@ export default function LoginPage() {
   function fillDemoProfessor() {
     setEmail('prof.sharma@joineazy.edu');
     setPassword('Admin@123');
+    setTouched({ email: false, password: false });
+    setSubmitted(false);
     setError('');
     showToast('Filled demo professor credentials', 'info');
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
+    setSubmitted(true);
     setError('');
-    setLoading(true);
 
+    if (Object.keys(fieldErrors).length > 0) {
+      return;
+    }
+
+    setLoading(true);
     try {
       const user = await login({ email: email.trim(), password });
       showToast(`Welcome back, ${user.name}`, 'success');
       navigate(user.role === 'admin' ? '/admin' : '/student', { replace: true });
     } catch (err) {
-      setError(err.message || 'Sign in failed');
+      setError(err.message || 'Sign in failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -55,7 +97,7 @@ export default function LoginPage() {
             Joineazy Assignment Portal
           </h1>
           <p className="mt-1.5 text-sm text-slate-600">
-            Student group collaboration and assignment verification
+            Course-first group collaboration and assignment verification
           </p>
         </div>
 
@@ -85,7 +127,7 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div>
               <label
                 htmlFor="login-email"
@@ -98,13 +140,30 @@ export default function LoginPage() {
                 <input
                   id="login-email"
                   type="email"
-                  required
+                  autoComplete="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (error) setError('');
+                  }}
+                  onBlur={() => setTouched((prev) => ({ ...prev, email: true }))}
                   placeholder="you@joineazy.edu"
-                  className="w-full rounded-xl border border-slate-300 py-2 pl-10 pr-3.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  aria-invalid={Boolean(showEmailError)}
+                  className={`w-full rounded-xl border py-2 pl-10 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
+                    showEmailError
+                      ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
+                      : 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500/20'
+                  }`}
                 />
+                {!fieldErrors.email && email.trim().length > 0 && (
+                  <CheckCircle2 className="pointer-events-none absolute right-3 top-2.5 h-4 w-4 text-emerald-500" />
+                )}
               </div>
+              {showEmailError && (
+                <p className="mt-1 animate-fade-in text-xs font-medium text-rose-600">
+                  {fieldErrors.email}
+                </p>
+              )}
             </div>
 
             <div>
@@ -119,27 +178,46 @@ export default function LoginPage() {
                 <input
                   id="login-password"
                   type="password"
-                  required
+                  autoComplete="current-password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (error) setError('');
+                  }}
+                  onBlur={() => setTouched((prev) => ({ ...prev, password: true }))}
                   placeholder="Enter your password"
-                  className="w-full rounded-xl border border-slate-300 py-2 pl-10 pr-3.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  aria-invalid={Boolean(showPasswordError)}
+                  className={`w-full rounded-xl border py-2 pl-10 pr-3.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
+                    showPasswordError
+                      ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20'
+                      : 'border-slate-300 focus:border-indigo-500 focus:ring-indigo-500/20'
+                  }`}
                 />
               </div>
+              {showPasswordError && (
+                <p className="mt-1 animate-fade-in text-xs font-medium text-rose-600">
+                  {fieldErrors.password}
+                </p>
+              )}
             </div>
 
             {error && (
-              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
-                {error}
-              </p>
+              <div
+                role="alert"
+                className="animate-fade-in flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-medium text-rose-700"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+                <span>{error}</span>
+              </div>
             )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-50"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+              <span>{loading ? 'Signing in...' : 'Sign In'}</span>
             </button>
           </form>
 

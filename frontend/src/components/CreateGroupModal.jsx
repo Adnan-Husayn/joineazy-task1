@@ -43,7 +43,7 @@ export default function CreateGroupModal({ onClose, onCreated }) {
       aria-modal="true"
       aria-labelledby="create-group-title"
     >
-      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
+      <div className="animate-modal-in w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">

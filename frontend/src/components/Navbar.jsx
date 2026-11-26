@@ -22,13 +22,39 @@ export default function Navbar() {
   const navItems =
     user.role === 'admin'
       ? [
-          { to: '/admin', label: 'Analytics', icon: BarChart3 },
-          { to: '/admin/assignments', label: 'Assignments', icon: BookOpen },
-          { to: '/admin/tracking', label: 'Submission Tracking', icon: CheckSquare },
+          {
+            to: '/admin',
+            label: 'Courses & Analytics',
+            icon: BarChart3,
+            isActive: (pathname) => pathname === '/admin' || pathname.startsWith('/admin/courses/'),
+          },
+          {
+            to: '/admin/assignments',
+            label: 'Assignments',
+            icon: BookOpen,
+            isActive: (pathname) => pathname === '/admin/assignments',
+          },
+          {
+            to: '/admin/tracking',
+            label: 'Submission Tracking',
+            icon: CheckSquare,
+            isActive: (pathname) => pathname === '/admin/tracking',
+          },
         ]
       : [
-          { to: '/student', label: 'Assignments & Progress', icon: BookOpen },
-          { to: '/student/groups', label: 'My Groups', icon: Users },
+          {
+            to: '/student',
+            label: 'Courses',
+            icon: BookOpen,
+            isActive: (pathname) =>
+              pathname === '/student' || pathname.startsWith('/student/courses/'),
+          },
+          {
+            to: '/student/groups',
+            label: 'My Groups',
+            icon: Users,
+            isActive: (pathname) => pathname === '/student/groups',
+          },
         ];
 
   return (
@@ -54,7 +80,7 @@ export default function Navbar() {
 
           <nav className="hidden items-center gap-1 md:flex">
             {navItems.map((item) => {
-              const active = location.pathname === item.to;
+              const active = item.isActive(location.pathname);
               const Icon = item.icon;
               return (
                 <Link
@@ -102,7 +128,7 @@ export default function Navbar() {
       </div>
 
       {mobileOpen && (
-        <div className="border-t border-slate-200 bg-white px-4 py-3 md:hidden">
+        <div className="animate-fade-in border-t border-slate-200 bg-white px-4 py-3 md:hidden">
           <div className="mb-3 border-b border-slate-100 pb-3">
             <p className="text-sm font-semibold text-slate-900">{user.name}</p>
             <p className="text-xs text-slate-500">
@@ -111,7 +137,7 @@ export default function Navbar() {
           </div>
           <div className="flex flex-col gap-1">
             {navItems.map((item) => {
-              const active = location.pathname === item.to;
+              const active = item.isActive(location.pathname);
               const Icon = item.icon;
               return (
                 <Link

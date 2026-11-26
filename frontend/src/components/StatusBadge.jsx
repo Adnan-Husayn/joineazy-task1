@@ -28,7 +28,12 @@ const STATUS_STYLES = {
   },
 };
 
-export default function StatusBadge({ status, isOverdue = false, labelOverride }) {
+export default function StatusBadge({
+  status,
+  isOverdue = false,
+  labelOverride,
+  animateCheck = false,
+}) {
   const effectiveKey = isOverdue && status !== 'submitted' ? 'overdue' : status;
   const config = STATUS_STYLES[effectiveKey] || STATUS_STYLES.pending;
   const { Icon } = config;
@@ -37,7 +42,11 @@ export default function StatusBadge({ status, isOverdue = false, labelOverride }
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${config.className}`}
     >
-      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <Icon
+        className={`h-3.5 w-3.5 shrink-0 ${
+          animateCheck && effectiveKey === 'submitted' ? 'animate-check-pop' : ''
+        }`}
+      />
       <span>{labelOverride || config.label}</span>
     </span>
   );

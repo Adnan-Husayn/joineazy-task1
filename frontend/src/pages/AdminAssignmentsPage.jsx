@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Calendar,
   ExternalLink,
@@ -6,9 +7,10 @@ import {
   Plus,
   Search,
   Trash2,
+  User,
   Users,
 } from 'lucide-react';
-import { assignmentsApi, groupsApi } from '../api/client';
+import { assignmentsApi, coursesApi, groupsApi } from '../api/client';
 import AssignmentModal from '../components/AssignmentModal';
 import Navbar from '../components/Navbar';
 import ProgressBar from '../components/ProgressBar';
@@ -17,14 +19,17 @@ import { formatDateTime } from '../utils/formatters';
 
 export default function AdminAssignmentsPage() {
   const { showToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [assignments, setAssignments] = useState([]);
+  const [courses, setCourses] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const [courseFilter, setCourseFilter] = useState(searchParams.get('courseId') || '');
+  const [submissionFilter, setSubmissionFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [targetFilter, setTargetFilter] = useState('all_types');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -33,11 +38,13 @@ export default function AdminAssignmentsPage() {
   const loadData = useCallback(async () => {
     try {
       setError('');
-      const [assignmentsRes, groupsRes] = await Promise.all([
+      const [assignmentsRes, coursesRes, groupsRes] = await Promise.all([
         assignmentsApi.list(),
+        coursesApi.list(),
         groupsApi.list(),
       ]);
       setAssignments(assignmentsRes.assignments || []);
+      setCourses(coursesRes.courses || []);
       setGroups(groupsRes.groups || []);
     } catch (err) {
       setError(err.message || 'Failed to load assignments');
@@ -50,21 +57,35 @@ export default function AdminAssignmentsPage() {
     loadData();
   }, [loadData]);
 
+  function handleCourseFilterChange(nextCourseId) {
+    setCourseFilter(nextCourseId);
+    if (nextCourseId) {
+      setSearchParams({ courseId: nextCourseId });
+    } else {
+      setSearchParams({});
+    }
+  }
+
   const filteredAssignments = useMemo(() => {
     const term = searchQuery.trim().toLowerCase();
     return assignments.filter((item) => {
-      if (targetFilter !== 'all_types' && item.targetType !== targetFilter) {
+      if (courseFilter && String(item.courseId) !== String(courseFilter)) {
+        return false;
+      }
+      if (submissionFilter !== 'all' && item.submissionType !== submissionFilter) {
         return false;
       }
       if (term) {
-        const text = `${item.title} ${item.description} ${(item.targetGroups || [])
+        const text = `${item.courseCode || ''} ${item.courseTitle || ''} ${item.title} ${item.description} ${(
+          item.targetGroups || []
+        )
           .map((g) => g.name)
           .join(' ')}`.toLowerCase();
         if (!text.includes(term)) return false;
       }
       return true;
     });
-  }, [assignments, targetFilter, searchQuery]);
+  }, [assignments, courseFilter, submissionFilter, searchQuery]);
 
   async function confirmDelete() {
     if (!deleteTarget) return;
@@ -92,7 +113,7 @@ export default function AdminAssignmentsPage() {
               Manage Assignments
             </h1>
             <p className="mt-1 text-sm text-slate-600">
-              Publish assignments to all students or specific groups with OneDrive links.
+              Publish Individual or Group assignments across your courses with OneDrive links.
             </p>
           </div>
           <button
@@ -108,26 +129,42 @@ export default function AdminAssignmentsPage() {
           </button>
         </div>
 
-        <div className="mb-6 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
-            {[
-              { id: 'all_types', label: 'All Assignments' },
-              { id: 'all', label: 'All Students' },
-              { id: 'specific_groups', label: 'Specific Groups' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setTargetFilter(tab.id)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  targetFilter === tab.id
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+        <div className="mb-6 flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              aria-label="Filter by course"
+              value={courseFilter}
+              onChange={(e) => handleCourseFilterChange(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            >
+              <option value="">All Courses</option>
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code} — {c.title}
+                </option>
+              ))}
+            </select>
+
+            <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1">
+              {[
+                { id: 'all', label: 'All Types' },
+                { id: 'group', label: 'Group' },
+                { id: 'individual', label: 'Individual' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setSubmissionFilter(tab.id)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    submissionFilter === tab.id
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="relative">
@@ -136,7 +173,7 @@ export default function AdminAssignmentsPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search assignments or groups..."
+              placeholder="Search courses, titles, or groups..."
               className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 sm:w-72"
             />
           </div>
@@ -166,18 +203,20 @@ export default function AdminAssignmentsPage() {
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center shadow-sm">
             <p className="text-sm font-medium text-slate-700">No assignments found.</p>
             <p className="mt-1 text-xs text-slate-500">
-              Create an assignment or adjust your search filters.
+              Create an assignment or adjust your course/type filters.
             </p>
           </div>
         ) : (
           <div className="space-y-4">
             {filteredAssignments.map((assignment) => {
+              const isIndividual = assignment.submissionType === 'individual';
               const stats = assignment.stats || {
                 eligibleGroups: 0,
                 submittedGroups: 0,
                 groupCompletionRate: 0,
                 eligibleStudents: 0,
                 submittedStudents: 0,
+                studentCompletionRate: 0,
                 isOverdue: false,
               };
 
@@ -189,22 +228,39 @@ export default function AdminAssignmentsPage() {
                   <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
                     <div className="flex-1 space-y-2.5">
                       <div className="flex flex-wrap items-center gap-2">
+                        {assignment.courseCode && (
+                          <span className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-xs font-bold text-indigo-700">
+                            {assignment.courseCode}
+                          </span>
+                        )}
+
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            assignment.targetType === 'all'
-                              ? 'bg-indigo-50 text-indigo-700'
-                              : 'bg-violet-50 text-violet-700'
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                            isIndividual
+                              ? 'border-sky-200 bg-sky-50 text-sky-700'
+                              : 'border-violet-200 bg-violet-50 text-violet-700'
                           }`}
                         >
-                          <Users className="h-3 w-3" />
-                          {assignment.targetType === 'all'
-                            ? 'All Students'
-                            : `${assignment.targetGroups.length} Target ${
-                                assignment.targetGroups.length === 1 ? 'Group' : 'Groups'
-                              }`}
+                          {isIndividual ? (
+                            <User className="h-3 w-3" />
+                          ) : (
+                            <Users className="h-3 w-3" />
+                          )}
+                          {isIndividual ? 'Individual' : 'Group'}
                         </span>
 
-                        {assignment.targetType === 'specific_groups' &&
+                        {!isIndividual && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                            {assignment.targetType === 'all'
+                              ? 'All Course Groups'
+                              : `${assignment.targetGroups.length} Target ${
+                                  assignment.targetGroups.length === 1 ? 'Group' : 'Groups'
+                                }`}
+                          </span>
+                        )}
+
+                        {!isIndividual &&
+                          assignment.targetType === 'specific_groups' &&
                           assignment.targetGroups.map((tg) => (
                             <span
                               key={tg.id}
@@ -264,19 +320,30 @@ export default function AdminAssignmentsPage() {
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-2">
-                    <ProgressBar
-                      size="sm"
-                      label="Group Submissions"
-                      value={stats.groupCompletionRate}
-                      sublabel={`${stats.submittedGroups}/${stats.eligibleGroups} groups (${stats.groupCompletionRate}%)`}
-                    />
-                    <ProgressBar
-                      size="sm"
-                      label="Student Coverage"
-                      value={stats.studentCompletionRate}
-                      sublabel={`${stats.submittedStudents}/${stats.eligibleStudents} students (${stats.studentCompletionRate}%)`}
-                    />
+                  <div className="mt-5 border-t border-slate-100 pt-4">
+                    {isIndividual ? (
+                      <ProgressBar
+                        size="sm"
+                        label="Individual Acknowledgments"
+                        value={stats.studentCompletionRate}
+                        sublabel={`${stats.submittedStudents}/${stats.eligibleStudents} students (${stats.studentCompletionRate}%)`}
+                      />
+                    ) : (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <ProgressBar
+                          size="sm"
+                          label="Group Submissions (Leader Confirmed)"
+                          value={stats.groupCompletionRate}
+                          sublabel={`${stats.submittedGroups}/${stats.eligibleGroups} groups (${stats.groupCompletionRate}%)`}
+                        />
+                        <ProgressBar
+                          size="sm"
+                          label="Student Coverage"
+                          value={stats.studentCompletionRate}
+                          sublabel={`${stats.submittedStudents}/${stats.eligibleStudents} students (${stats.studentCompletionRate}%)`}
+                        />
+                      </div>
+                    )}
                   </div>
                 </article>
               );
@@ -288,6 +355,8 @@ export default function AdminAssignmentsPage() {
       {modalOpen && (
         <AssignmentModal
           assignment={editingAssignment}
+          courses={courses}
+          defaultCourseId={courseFilter ? Number(courseFilter) : null}
           groups={groups}
           onClose={() => {
             setModalOpen(false);
@@ -307,7 +376,7 @@ export default function AdminAssignmentsPage() {
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="animate-modal-in w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <h3 className="text-base font-semibold text-slate-900">Delete Assignment?</h3>
             <p className="mt-2 text-sm text-slate-600">
               Deleting <span className="font-semibold">{deleteTarget.title}</span> will also

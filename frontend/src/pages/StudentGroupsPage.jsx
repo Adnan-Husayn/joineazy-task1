@@ -323,7 +323,7 @@ export default function StudentGroupsPage() {
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+          <div className="animate-modal-in w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <h3 className="text-base font-semibold text-slate-900">
               {pendingRemoval.isSelf ? 'Leave Group?' : 'Remove Group Member?'}
             </h3>

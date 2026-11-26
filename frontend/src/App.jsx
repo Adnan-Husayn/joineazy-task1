@@ -4,9 +4,11 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 import AdminAnalyticsPage from './pages/AdminAnalyticsPage';
 import AdminAssignmentsPage from './pages/AdminAssignmentsPage';
+import AdminCoursePage from './pages/AdminCoursePage';
 import AdminTrackingPage from './pages/AdminTrackingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import StudentCoursePage from './pages/StudentCoursePage';
 import StudentDashboardPage from './pages/StudentDashboardPage';
 import StudentGroupsPage from './pages/StudentGroupsPage';
 
@@ -65,6 +67,14 @@ export default function App() {
               }
             />
             <Route
+              path="/student/courses/:courseId"
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <StudentCoursePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/student/groups"
               element={
                 <ProtectedRoute allowedRoles={['student']}>
@@ -78,6 +88,14 @@ export default function App() {
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <AdminAnalyticsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/courses/:courseId"
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <AdminCoursePage />
                 </ProtectedRoute>
               }
             />
