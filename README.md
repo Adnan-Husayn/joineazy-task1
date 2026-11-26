@@ -1,6 +1,6 @@
-# Joineazy Task 1: Student, Group & Assignment Management System
+# Joineazy: Course, Group & Assignment Management Portal
 
-Full-stack web application for managing university student groups, assignment distribution, OneDrive submission confirmation, and professor-side completion tracking.
+Full-stack web application for managing university courses, student teams, OneDrive assignment submissions, leader-only group acknowledgments, and professor tracking analytics.
 
 ## Live Deployment
 - **Frontend (Vercel):** https://joineazy-task1-sepia.vercel.app
@@ -10,44 +10,55 @@ Full-stack web application for managing university student groups, assignment di
 ## Implementation Overview
 
 ### Student Role
-- **Registration & Login:** JWT authentication with `bcryptjs` password hashing. Students register with name, email, unique `studentId`, and password.
-- **Group Management:** Create groups, view member rosters, invite peers by student email or `studentId`, remove members (leader/admin), or leave groups. When a group leader leaves, leadership passes to the earliest remaining member; if the last member leaves, the empty group is removed.
-- **Assignment Feed & OneDrive Links:** View assignments targeted to `all` students or any group the student belongs to, with direct external OneDrive submission links.
-- **Two-Step Submission Confirmation:** Clicking `"Yes, I have submitted"` opens a confirmation dialog where the student verifies the OneDrive upload, selects the applicable group when enrolled in multiple groups, adds an optional note, and clicks `"Confirm Submission"`. Confirmed items display a verified `"Submitted"` badge with the timestamp and the confirming member's name.
-- **Progress Tracking:** Overall completion card and per-group progress bars with completion badges.
+- **Registration & Login:** JWT authentication with `bcryptjs` password hashing, inline field validation, and loading states. Newly registered students are automatically enrolled in existing courses.
+- **Course-First Dashboard (`/student`):** Responsive grid of enrolled course cards showing course code, accent strip, professor name, individual/group task counts, progress bar, and completion badge.
+- **Course Assignment Workspace (`/student/courses/:courseId`):** Displays assignments scoped to that course with clear `Individual` vs. `Group` badges, due dates, and OneDrive submission links.
+- **Individual & Leader-Only Group Acknowledgment:**
+  - `Individual` assignments let each student click **"Yes, I have submitted"**, verify their OneDrive upload in a two-step modal, and record their personal acknowledgment.
+  - `Group` assignments restrict acknowledgment to the group leader (**"Acknowledge for Group (Leader)"**). Non-leader members see a read-only status pill (**"Group Leader Only — Waiting for `<Leader Name>` to acknowledge"**), and the API rejects non-leader attempts with `403 Forbidden`. Once the leader acknowledges, every member of that group sees the confirmed state.
+- **Group Management (`/student/groups`):** Create groups, invite peers by email or `studentId`, remove members (leader or professor), or leave groups. When a leader leaves, leadership transfers to the earliest remaining member.
 
 ### Professor (Admin) Role
-- **Assignment CRUD:** Create, edit, view, and delete assignments with title, description, due date, OneDrive URL, and audience targeting (`all` students or `specific_groups` via multi-select group picker).
-- **Group-wise & Student-wise Tracking:** Switch between group-level and student-level tracking tables, filter by assignment or status (`submitted`, `partial`, `pending`, `overdue`), and search by student name, Student ID, email, group, or assignment title.
-- **Analytics Dashboard:** Summary KPI cards alongside Recharts bar charts for per-assignment completion rates (group completion % and student coverage %) and per-group completion rates, plus a recent confirmations feed.
+- **Courses Taught & Course Management (`/admin`, `/admin/courses/:courseId`):** View enrolled student counts, assignment counts, and course submission rates; create new courses with auto-enrollment; enroll individual students by email or `studentId`.
+- **Assignment CRUD (`/admin/assignments`):** Create, edit, and delete assignments tied to a specific course, choosing `Group` (`all` or `specific_groups`) or `Individual` (`all` enrolled students) submission type.
+- **Group-wise & Student-wise Tracking (`/admin/tracking`):** Switch between group-level and student-level tables, filter by course, assignment, status (`submitted`, `partial`, `pending`, `overdue`), and search by student, group, or leader name.
+- **Analytics Dashboard (`/admin`):** Summary KPI cards, Recharts bar charts for per-assignment completion rates and per-group performance, and a recent acknowledgment feed.
 
-## Architecture
+## UI/UX Design Choices & Rationale
+
+1. **Course-First Navigation:** Students and professors organize coursework by class rather than a single flat assignment list. Putting enrolled course cards at `/student` and courses taught at `/admin` keeps each workspace focused and cuts visual noise as the number of assignments grows.
+2. **Clear Visual Separation of Individual vs. Group Flows:** Every assignment card pairs a submission-type pill (`Individual` in sky blue, `Group` in violet) with role-aware actions. Group members who are not leaders see who holds acknowledgment responsibility instead of a disabled button that fails on click, reducing confusion before any API call happens.
+3. **Progressive Two-Step Confirmation Modal:** Opening OneDrive happens on an external tab, so students confirm upload completion inside a dedicated modal rather than a single-click toggle. For group assignments, the modal states which group is selected and notes that confirming marks the task submitted for every teammate.
+4. **Restrained Micro-Animations:** Keyframe transitions (`checkPop` on verified checkmarks, `modalIn` on dialog overlays, `fadeIn` on inline validation errors, and `700ms` progress bar fills) confirm state changes without slowing down navigation. Skeleton placeholders hold layout geometry during data fetches.
+
+## Component & System Architecture
 
 ```mermaid
 flowchart LR
-  Browser["Browser (React + Vite + Tailwind)"]
-  Nginx["Frontend Container (Nginx :3000 -> :80)"]
-  API["Express REST API (:5000)"]
+  Browser["Browser (React 18 + Vite + Tailwind)"]
+  CoursesUI["Course Cards & Course Detail Pages"]
+  ModalUI["Confirm Modal & Course/Assignment Modals"]
+  API["Express REST API (:5000 / Vercel Serverless)"]
   Auth["JWT + Zod Middleware"]
   Service["Tracking & Analytics Service"]
-  PG[("PostgreSQL 16")]
+  PG[("PostgreSQL 16 / Neon")]
 
-  Browser -->|"Static Assets & SPA Routes"| Nginx
-  Browser -->|"/api/* (Local Dev / Vercel -> Render)"| API
-  Nginx -->|"/api/* Reverse Proxy (Docker)"| API
+  Browser --> CoursesUI
+  CoursesUI --> ModalUI
+  Browser -->|"/api/* (REST + Bearer JWT)"| API
   API --> Auth
   Auth --> Service
   Service --> PG
 ```
 
-- **Frontend (`frontend/`):** React 18, Vite, Tailwind CSS, React Router, Lucide icons, and Recharts.
-- **Backend (`backend/`):** Node.js, Express 4, Zod request validation, Helmet, CORS, `bcryptjs`, and `jsonwebtoken`.
-- **Database:** PostgreSQL with automatic schema initialization (`src/db/init.js`) on startup and an idempotent demo seed script (`src/db/seed.js`).
-
 ## Database Schema
 
 ```mermaid
 erDiagram
+  users ||--o{ courses : "teaches"
+  users ||--o{ course_enrollments : "enrolls_in"
+  courses ||--o{ course_enrollments : "has"
+  courses ||--o{ assignments : "contains"
   users ||--o{ groups : "creates"
   users ||--o{ group_members : "joins"
   groups ||--o{ group_members : "has"
@@ -68,6 +79,23 @@ erDiagram
     timestamptz created_at
   }
 
+  courses {
+    int id PK
+    string code UK
+    string title
+    text description
+    string semester
+    string accent_color
+    int professor_id FK
+    timestamptz created_at
+  }
+
+  course_enrollments {
+    int course_id PK
+    int student_id PK
+    timestamptz enrolled_at
+  }
+
   groups {
     int id PK
     string name
@@ -86,11 +114,13 @@ erDiagram
 
   assignments {
     int id PK
+    int course_id FK
     string title
     text description
     timestamptz due_date
     text onedrive_link
     string target_type
+    string submission_type
     int created_by FK
     timestamptz created_at
     timestamptz updated_at
@@ -112,37 +142,50 @@ erDiagram
   }
 ```
 
-### Schema Notes
-- `submissions` uses two partial unique indexes: `(assignment_id, group_id) WHERE group_id IS NOT NULL` prevents duplicate group confirmations for the same assignment, and `(assignment_id, confirmed_by) WHERE group_id IS NULL` handles individual submissions by ungrouped students on `all` assignments.
-- Email and `student_id` have case-insensitive unique indexes so `STU-2026-001` and `stu-2026-001` cannot collide.
+### Schema & Migration Notes
+- `backend/src/db/schema.sql` runs `CREATE TABLE IF NOT EXISTS` alongside idempotent `ALTER TABLE assignments ADD COLUMN IF NOT EXISTS` statements (`course_id`, `submission_type`) so existing Round 1 databases upgrade in place without losing data.
+- `submissions` enforces two partial unique indexes: `(assignment_id, group_id) WHERE group_id IS NOT NULL` prevents duplicate group acknowledgments, and `(assignment_id, confirmed_by) WHERE group_id IS NULL` prevents duplicate individual acknowledgments.
+- Email, `student_id`, and `courses.code` use case-insensitive unique indexes.
 
 ## API Endpoints
 
 | Method | Path | Role | Description |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/health` | Public | Verify Express server and PostgreSQL connection |
-| `POST` | `/api/auth/register` | Public | Register a student (requires unique `studentId`) or admin account |
+| `POST` | `/api/auth/register` | Public | Register a student (auto-enrolled in existing courses) or admin account |
 | `POST` | `/api/auth/login` | Public | Authenticate with email and password, returns JWT and user |
 | `GET` | `/api/auth/me` | Authenticated | Fetch the current logged-in user profile |
-| `GET` | `/api/groups` | Authenticated | List student's groups (student) or all groups (admin) with stats |
+| `GET` | `/api/courses` | Authenticated | List enrolled courses (student) or taught courses (admin) with completion stats |
+| `GET` | `/api/courses/:id` | Authenticated | Get course details, assignments, and role-aware submission status |
+| `POST` | `/api/courses` | Admin | Create a course and auto-enroll all or selected students |
+| `POST` | `/api/courses/:id/enroll` | Admin | Enroll a student by email, `studentId`, or user ID |
+| `GET` | `/api/groups` | Authenticated | List student groups (student) or all groups (admin) with stats |
 | `GET` | `/api/groups/:id` | Authenticated | Get single group details, members, and completion metrics |
 | `POST` | `/api/groups` | Authenticated | Create a new group and optionally invite initial members |
 | `POST` | `/api/groups/:id/members` | Authenticated | Add a student member by email or `studentId` |
 | `DELETE` | `/api/groups/:id/members/:userId` | Authenticated | Leave a group or remove a member (leader/admin) |
 | `DELETE` | `/api/groups/:id` | Leader / Admin | Delete a group |
-| `GET` | `/api/assignments` | Authenticated | List assignments visible to student or all assignments for admin |
+| `GET` | `/api/assignments` | Authenticated | List visible assignments (optional `?courseId=` filter) |
 | `GET` | `/api/assignments/:id` | Authenticated | Get assignment details and submission status |
-| `POST` | `/api/assignments` | Admin | Create an assignment (`all` or `specific_groups`) |
-| `PUT` | `/api/assignments/:id` | Admin | Update assignment metadata, OneDrive link, or target groups |
+| `POST` | `/api/assignments` | Admin | Create an assignment with `courseId`, `submissionType`, and `targetType` |
+| `PUT` | `/api/assignments/:id` | Admin | Update assignment metadata, course, submission type, or targets |
 | `DELETE` | `/api/assignments/:id` | Admin | Delete an assignment |
-| `POST` | `/api/submissions/confirm` | Student | Confirm OneDrive upload for a group (or individual if ungrouped) |
-| `GET` | `/api/submissions/progress` | Student | Get overall and per-group completion progress |
-| `GET` | `/api/submissions/tracking` | Admin | Get filterable group-wise and student-wise submission records |
+| `POST` | `/api/submissions/confirm` | Student | Acknowledge individual upload or leader-only group upload (`403` for non-leaders) |
+| `GET` | `/api/submissions/progress` | Student | Get overall, course-level, and per-group completion progress |
+| `GET` | `/api/submissions/tracking` | Admin | Get group-wise and student-wise tracking rows filtered by `courseId`, `assignmentId`, `status`, `search` |
 | `GET` | `/api/submissions/analytics` | Admin | Get summary KPIs, per-assignment rates, per-group rates, and recent activity |
 
-## Demo Accounts
+## UI Screenshots
 
-Running the seed script (or starting the stack with `SEED_DEMO_DATA=true` on an empty database) populates these demo accounts, 3 groups, 4 assignments, and partial submissions. The login page includes one-click **Fill Demo Student** and **Fill Demo Professor** buttons.
+1. **Login & Validation Flow:** ![Login Screen](docs/screenshots/01-login.png)
+2. **Student Enrolled Courses Dashboard:** ![Student Courses Dashboard](docs/screenshots/02-student-courses.png)
+3. **Student Course Assignments (Individual & Leader-Only Group States):** ![Course Assignments](docs/screenshots/03-student-course-assignments.png)
+4. **Two-Step Submission Confirmation Modal:** ![Confirmation Modal](docs/screenshots/04-submission-confirm-modal.png)
+5. **Professor Dashboard, Courses & Analytics:** ![Professor Dashboard](docs/screenshots/05-admin-dashboard.png)
+
+## Demo Accounts & Seeded Data
+
+Starting the backend with `SEED_DEMO_DATA=true` (when the `courses` table is empty) seeds 5 accounts, 4 courses (`CS401`, `CS402`, `CS403`, `CS404`), 3 groups, 9 assignments across individual and group types, and sample acknowledgments.
 
 | Role | Name | Email | Student ID | Password |
 | :--- | :--- | :--- | :--- | :--- |
@@ -152,11 +195,17 @@ Running the seed script (or starting the stack with `SEED_DEMO_DATA=true` on an 
 | Student | Rohan Verma | `rohan@joineazy.edu` | `STU-2026-003` | `Student@123` |
 | Student | Meera Iyer | `meera@joineazy.edu` | `STU-2026-004` | `Student@123` |
 
+- **Group Alpha - Distributed Systems:** Adnan Husain (`leader`), Priya Nair (`member`).
+- **Group Beta - Data Engineering:** Rohan Verma (`leader`), Meera Iyer (`member`).
+- **Capstone Core Team:** Priya Nair (`leader`), Adnan Husain (`member`), Rohan Verma (`member`), Meera Iyer (`member`).
+
+Logging in as Adnan (`adnan@joineazy.edu`) shows both sides of leader enforcement: he can acknowledge group assignments for **Group Alpha**, while **Capstone Core Team** assignments show a read-only waiting status for Priya Nair (`leader`).
+
 ## Setup & Running Locally
 
 ### Option 1: Docker Compose (Recommended)
 
-Runs PostgreSQL 16, the Express API, and the Nginx-served React frontend with automatic schema creation and demo seeding.
+Runs PostgreSQL 16, the Express API, and the Nginx-served React frontend with automatic schema migrations and demo seeding.
 
 ```bash
 docker compose up --build
@@ -198,29 +247,3 @@ npm run dev
 
 - **Frontend Dev Server:** `http://localhost:5173`
 - **Backend API:** `http://localhost:5000/api`
-
-## Design & Deployment Decisions
-
-1. **Single Tracking Service for Student, Admin & Analytics:** All eligibility resolution (`all` vs `specific_groups`) and completion math live in `backend/src/services/trackingService.js`. Student progress bars, assignment lists, admin tables, and Recharts datasets read from the same rules so percentages never drift.
-2. **PostgreSQL SSL Auto-Detection:** `backend/src/config/db.js` supports both `DATABASE_URL` and `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`. When `NODE_ENV=production` with a remote host (Neon, Render, Supabase), SSL (`rejectUnauthorized: false`) turns on automatically. Local Docker containers (`PGHOST=db`, `DATABASE_SSL=false`) keep SSL off.
-3. **Zero-Step Schema Bootstrap:** `server.js` runs `CREATE TABLE IF NOT EXISTS` statements from `schema.sql` before listening, so deploying against a fresh managed PostgreSQL instance requires no manual migration CLI step.
-4. **Nginx Reverse Proxy & SPA Fallback:** In Docker, `frontend/nginx.conf` serves the Vite production build, falls back to `/index.html` for React Router paths, and proxies `/api/` to `backend:5000`. For standalone static hosting on Vercel, `frontend/vercel.json` handles SPA rewrites.
-
-### Deploying to Neon / Render + Vercel
-
-1. **Database (Neon or Render Postgres):** Provision a PostgreSQL instance and copy its `DATABASE_URL`.
-2. **Backend (Render Web Service):**
-   - Root Directory: `backend`
-   - Build Command: `npm install`
-   - Start Command: `npm start`
-   - Environment Variables:
-     - `NODE_ENV=production`
-     - `DATABASE_URL=<your-postgres-connection-string>`
-     - `JWT_SECRET=<strong-random-secret>`
-     - `CORS_ORIGIN=https://<your-vercel-domain>.vercel.app`
-     - `SEED_DEMO_DATA=true` (seeds demo records once if `users` is empty)
-3. **Frontend (Vercel):**
-   - Root Directory: `frontend`
-   - Framework Preset: `Vite`
-   - Environment Variable: `VITE_API_URL=https://<your-render-service>.onrender.com/api`
-   - `frontend/vercel.json` automatically rewrites client-side routes to `/index.html`.
