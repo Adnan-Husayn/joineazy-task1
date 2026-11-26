@@ -10,15 +10,15 @@ async function bootstrap() {
   await initDatabase();
 
   if (process.env.SEED_DEMO_DATA === 'true') {
-    const usersCountRes = await query('SELECT COUNT(*)::int AS count FROM users');
-    if (usersCountRes.rows[0].count === 0) {
+    const coursesCountRes = await query('SELECT COUNT(*)::int AS count FROM courses');
+    if (coursesCountRes.rows[0].count === 0) {
       const summary = await seedDatabase({ closePool: false });
       console.log('Seeded initial demo data:', summary);
     }
   }
 
   const server = app.listen(PORT, () => {
-    console.log(`Joineazy Task 1 API listening on port ${PORT}`);
+    console.log(`Joineazy API listening on port ${PORT}`);
   });
 
   const shutdown = async (signal) => {

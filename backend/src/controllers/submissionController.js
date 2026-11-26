@@ -1,17 +1,22 @@
 const { query } = require('../config/db');
-const { AppError, asyncHandler } = require('../utils/errors');
+const { AppError, asyncHandler, parseId } = require('../utils/errors');
 const { confirmSubmissionSchema } = require('../validators/schemas');
 const {
   loadTrackingSnapshot,
+  isStudentVisibleForAssignment,
   evaluateStudentAssignmentStatus,
   buildAdminAnalyticsAndTracking,
+  buildStudentCoursesSummary,
 } = require('../services/trackingService');
 
 const confirmSubmission = asyncHandler(async (req, res) => {
   const parsed = confirmSubmissionSchema.parse(req.body);
 
   const assignmentRes = await query(
-    'SELECT id, title, target_type AS "targetType" FROM assignments WHERE id = $1',
+    `SELECT id, course_id AS "courseId", title, target_type AS "targetType",
+            submission_type AS "submissionType"
+     FROM assignments
+     WHERE id = $1`,
     [parsed.assignmentId]
   );
   if (assignmentRes.rows.length === 0) {
@@ -19,8 +24,54 @@ const confirmSubmission = asyncHandler(async (req, res) => {
   }
   const assignment = assignmentRes.rows[0];
 
+  if (assignment.courseId !== null && assignment.courseId !== undefined) {
+    const enrollmentRes = await query(
+      `SELECT 1 FROM course_enrollments WHERE course_id = $1 AND student_id = $2`,
+      [assignment.courseId, req.user.id]
+    );
+    if (enrollmentRes.rows.length === 0) {
+      throw new AppError('You are not enrolled in this assignment’s course', 403);
+    }
+  }
+
+  if (assignment.submissionType === 'individual') {
+    if (parsed.groupId !== undefined && parsed.groupId !== null) {
+      throw new AppError('Group selection is not allowed for individual assignments', 400);
+    }
+
+    const existingIndividualSub = await query(
+      `SELECT id FROM submissions
+       WHERE assignment_id = $1 AND group_id IS NULL AND confirmed_by = $2`,
+      [assignment.id, req.user.id]
+    );
+    if (existingIndividualSub.rows.length > 0) {
+      throw new AppError('You have already acknowledged submission for this assignment', 409);
+    }
+
+    const insertRes = await query(
+      `INSERT INTO submissions (assignment_id, group_id, confirmed_by, confirmation_note)
+       VALUES ($1, NULL, $2, $3)
+       RETURNING id, assignment_id AS "assignmentId", group_id AS "groupId",
+                 confirmed_by AS "confirmedBy", confirmation_note AS "note",
+                 confirmed_at AS "confirmedAt"`,
+      [assignment.id, req.user.id, parsed.note || '']
+    );
+
+    const sub = insertRes.rows[0];
+    return res.status(201).json({
+      message: 'Individual submission acknowledged',
+      submission: {
+        ...sub,
+        groupName: null,
+        confirmedByName: req.user.name,
+        confirmedByStudentId: req.user.studentId,
+      },
+    });
+  }
+
+  // Group submission flow: requires group membership AND group leader role
   const studentGroupsRes = await query(
-    `SELECT gm.group_id AS "groupId", g.name AS "groupName"
+    `SELECT gm.group_id AS "groupId", gm.role_in_group AS "roleInGroup", g.name AS "groupName"
      FROM group_members gm
      JOIN groups g ON g.id = gm.group_id
      WHERE gm.user_id = $1
@@ -43,44 +94,44 @@ const confirmSubmission = asyncHandler(async (req, res) => {
     }
   }
 
-  let resolvedGroupId = parsed.groupId ?? null;
-  let resolvedGroupName = null;
+  if (applicableGroups.length === 0) {
+    throw new AppError(
+      'You must belong to a group to acknowledge submission for group assignments.',
+      400
+    );
+  }
 
-  if (resolvedGroupId !== null) {
-    const matchedGroup = applicableGroups.find((g) => g.groupId === resolvedGroupId);
+  let matchedGroup = null;
+  if (parsed.groupId !== undefined && parsed.groupId !== null) {
+    matchedGroup = applicableGroups.find((g) => g.groupId === parsed.groupId) || null;
     if (!matchedGroup) {
       throw new AppError(
         'Selected group is invalid or is not assigned to this assignment',
         403
       );
     }
-    resolvedGroupName = matchedGroup.groupName;
   } else if (applicableGroups.length === 1) {
-    resolvedGroupId = applicableGroups[0].groupId;
-    resolvedGroupName = applicableGroups[0].groupName;
-  } else if (applicableGroups.length > 1) {
-    throw new AppError('Please select which group you are confirming submission for', 400);
+    matchedGroup = applicableGroups[0];
+  } else {
+    throw new AppError('Please select which group you are acknowledging submission for', 400);
   }
 
-  if (resolvedGroupId !== null) {
-    const existingGroupSub = await query(
-      'SELECT id FROM submissions WHERE assignment_id = $1 AND group_id = $2',
-      [assignment.id, resolvedGroupId]
+  if (matchedGroup.roleInGroup !== 'leader') {
+    throw new AppError(
+      'Only the group leader can acknowledge submission for group assignments.',
+      403
     );
-    if (existingGroupSub.rows.length > 0) {
-      throw new AppError(
-        `Submission has already been confirmed for ${resolvedGroupName}`,
-        409
-      );
-    }
-  } else {
-    const existingIndividualSub = await query(
-      'SELECT id FROM submissions WHERE assignment_id = $1 AND group_id IS NULL AND confirmed_by = $2',
-      [assignment.id, req.user.id]
+  }
+
+  const existingGroupSub = await query(
+    'SELECT id FROM submissions WHERE assignment_id = $1 AND group_id = $2',
+    [assignment.id, matchedGroup.groupId]
+  );
+  if (existingGroupSub.rows.length > 0) {
+    throw new AppError(
+      `Submission has already been acknowledged for ${matchedGroup.groupName}`,
+      409
     );
-    if (existingIndividualSub.rows.length > 0) {
-      throw new AppError('You have already confirmed submission for this assignment', 409);
-    }
   }
 
   const insertRes = await query(
@@ -89,17 +140,15 @@ const confirmSubmission = asyncHandler(async (req, res) => {
      RETURNING id, assignment_id AS "assignmentId", group_id AS "groupId",
                confirmed_by AS "confirmedBy", confirmation_note AS "note",
                confirmed_at AS "confirmedAt"`,
-    [assignment.id, resolvedGroupId, req.user.id, parsed.note || '']
+    [assignment.id, matchedGroup.groupId, req.user.id, parsed.note || '']
   );
 
   const sub = insertRes.rows[0];
-  res.status(201).json({
-    message: resolvedGroupName
-      ? `Submission confirmed for ${resolvedGroupName}`
-      : 'Submission confirmed successfully',
+  return res.status(201).json({
+    message: `Submission acknowledged for ${matchedGroup.groupName}`,
     submission: {
       ...sub,
-      groupName: resolvedGroupName,
+      groupName: matchedGroup.groupName,
       confirmedByName: req.user.name,
       confirmedByStudentId: req.user.studentId,
     },
@@ -111,11 +160,9 @@ const getStudentProgress = asyncHandler(async (req, res) => {
   const studentGroups = snapshot.studentGroupsMap.get(req.user.id) || [];
   const studentGroupIds = new Set(studentGroups.map((g) => g.id));
 
-  const visibleAssignments = snapshot.assignments.filter((assignment) => {
-    if (assignment.targetType === 'all') return true;
-    const targets = snapshot.targetGroupsByAssignment.get(assignment.id) || [];
-    return targets.some((t) => studentGroupIds.has(t.id));
-  });
+  const visibleAssignments = snapshot.assignments.filter((assignment) =>
+    isStudentVisibleForAssignment(assignment, req.user.id, snapshot)
+  );
 
   let completedAssignments = 0;
   let partialAssignments = 0;
@@ -144,19 +191,27 @@ const getStudentProgress = asyncHandler(async (req, res) => {
 
   const { perGroup } = buildAdminAnalyticsAndTracking(snapshot);
   const groups = perGroup.filter((g) => studentGroupIds.has(g.groupId));
+  const courses = buildStudentCoursesSummary(req.user, snapshot);
 
-  res.status(200).json({ overall, groups });
+  res.status(200).json({ overall, groups, courses });
 });
 
 const getTracking = asyncHandler(async (req, res) => {
   const snapshot = await loadTrackingSnapshot();
   const { groupWise, studentWise } = buildAdminAnalyticsAndTracking(snapshot);
 
-  const assignmentIdFilter = req.query.assignmentId ? Number(req.query.assignmentId) : null;
+  const courseIdFilter = req.query.courseId ? parseId(req.query.courseId, 'course ID') : null;
+  const assignmentIdFilter = req.query.assignmentId
+    ? parseId(req.query.assignmentId, 'assignment ID')
+    : null;
   const statusFilter = (req.query.status || 'all').toString().toLowerCase();
   const searchTerm = (req.query.search || '').toString().trim().toLowerCase();
 
   function matchesFilters(row, type) {
+    if (courseIdFilter && row.courseId !== courseIdFilter) {
+      return false;
+    }
+
     if (assignmentIdFilter && row.assignmentId !== assignmentIdFilter) {
       return false;
     }
@@ -173,19 +228,24 @@ const getTracking = asyncHandler(async (req, res) => {
       const fields =
         type === 'group'
           ? [
+              row.courseCode,
+              row.courseTitle,
               row.groupName,
+              row.leaderName,
               row.assignmentTitle,
               row.confirmedByName,
               row.confirmedByStudentId,
               ...row.members.map((m) => `${m.name} ${m.studentId || ''}`),
             ]
           : [
+              row.courseCode,
+              row.courseTitle,
               row.studentName,
               row.studentEmail,
               row.studentCode,
               row.assignmentTitle,
               row.confirmedByName,
-              ...row.applicableGroups.map((g) => g.name),
+              ...row.applicableGroups.map((g) => `${g.name} ${g.leaderName || ''}`),
             ];
 
       const matches = fields.some(

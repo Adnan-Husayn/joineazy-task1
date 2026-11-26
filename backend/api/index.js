@@ -11,8 +11,8 @@ async function ensureBootstrapped() {
       await initDatabase();
 
       if (process.env.SEED_DEMO_DATA === 'true') {
-        const usersCountRes = await query('SELECT COUNT(*)::int AS count FROM users');
-        if (usersCountRes.rows[0].count === 0) {
+        const coursesCountRes = await query('SELECT COUNT(*)::int AS count FROM courses');
+        if (coursesCountRes.rows[0].count === 0) {
           try {
             await seedDatabase({ closePool: false });
           } catch (seedErr) {

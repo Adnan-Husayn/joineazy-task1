@@ -36,8 +36,42 @@ const addMemberSchema = z.object({
   identifier: z.string().trim().min(2, 'Enter a student email or student ID'),
 });
 
+const createCourseSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(2, 'Course code must be at least 2 characters')
+    .max(30, 'Course code cannot exceed 30 characters'),
+  title: z
+    .string()
+    .trim()
+    .min(3, 'Course title must be at least 3 characters')
+    .max(160, 'Course title cannot exceed 160 characters'),
+  description: z.string().trim().max(2000).optional().default(''),
+  semester: z.string().trim().min(2).max(60).optional().default('Fall 2026'),
+  accentColor: z
+    .enum(['indigo', 'emerald', 'amber', 'violet', 'sky', 'rose'])
+    .optional()
+    .default('indigo'),
+  enrollAllStudents: z.boolean().optional().default(true),
+  studentIds: z.array(z.number().int().positive()).optional().default([]),
+});
+
+const enrollStudentSchema = z
+  .object({
+    identifier: z.string().trim().min(1).optional(),
+    email: z.string().trim().email('Please provide a valid student email').optional(),
+    studentId: z
+      .union([z.number().int().positive(), z.string().trim().min(1)])
+      .optional(),
+  })
+  .refine((data) => Boolean(data.identifier || data.email || data.studentId), {
+    message: 'Provide a student email or Student ID to enroll',
+  });
+
 const assignmentSchema = z
   .object({
+    courseId: z.number().int().positive('Valid course ID is required').nullable().optional(),
     title: z.string().trim().min(3, 'Title must be at least 3 characters').max(200),
     description: z.string().trim().max(4000).optional().default(''),
     dueDate: z
@@ -52,10 +86,18 @@ const assignmentSchema = z
         (val) => val.startsWith('https://') || val.startsWith('http://'),
         'OneDrive link must start with http:// or https://'
       ),
+    submissionType: z.enum(['individual', 'group']).optional().default('group'),
     targetType: z.enum(['all', 'specific_groups']).default('all'),
     targetGroupIds: z.array(z.number().int().positive()).optional().default([]),
   })
   .superRefine((data, ctx) => {
+    if (data.submissionType === 'individual' && data.targetType === 'specific_groups') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['targetType'],
+        message: 'Individual assignments must apply to all enrolled students',
+      });
+    }
     if (data.targetType === 'specific_groups' && data.targetGroupIds.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -81,6 +123,8 @@ module.exports = {
   loginSchema,
   createGroupSchema,
   addMemberSchema,
+  createCourseSchema,
+  enrollStudentSchema,
   assignmentSchema,
   confirmSubmissionSchema,
 };

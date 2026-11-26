@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { query } = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
+const courseRoutes = require('./routes/courseRoutes');
 const groupRoutes = require('./routes/groupRoutes');
 const assignmentRoutes = require('./routes/assignmentRoutes');
 const submissionRoutes = require('./routes/submissionRoutes');
@@ -52,6 +53,7 @@ app.get('/api/health', async (req, res, next) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/courses', courseRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/assignments', assignmentRoutes);
 app.use('/api/submissions', submissionRoutes);

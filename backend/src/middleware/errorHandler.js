@@ -33,8 +33,11 @@ function errorHandler(err, req, res, _next) {
       if (constraint.includes('student_id')) {
         return res.status(409).json({ error: 'This Student ID is already registered' });
       }
+      if (constraint.includes('courses')) {
+        return res.status(409).json({ error: 'A course with this code already exists' });
+      }
       if (constraint.includes('submissions')) {
-        return res.status(409).json({ error: 'Submission has already been confirmed' });
+        return res.status(409).json({ error: 'Submission has already been acknowledged' });
       }
       return res.status(409).json({ error: 'Duplicate record already exists' });
     }

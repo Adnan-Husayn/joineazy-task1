@@ -1,5 +1,5 @@
 const bcrypt = require('bcryptjs');
-const { query } = require('../config/db');
+const { query, withTransaction } = require('../config/db');
 const { signToken } = require('../middleware/auth');
 const { AppError, asyncHandler } = require('../utils/errors');
 const { registerSchema, loginSchema } = require('../validators/schemas');
@@ -29,14 +29,28 @@ const register = asyncHandler(async (req, res) => {
 
   const passwordHash = await bcrypt.hash(parsed.password, 10);
 
-  const insertResult = await query(
-    `INSERT INTO users (name, email, student_id, password_hash, role)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING id, name, email, student_id AS "studentId", role, created_at AS "createdAt"`,
-    [parsed.name.trim(), normalizedEmail, normalizedStudentId, passwordHash, parsed.role]
-  );
+  const user = await withTransaction(async (client) => {
+    const insertResult = await client.query(
+      `INSERT INTO users (name, email, student_id, password_hash, role)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, email, student_id AS "studentId", role, created_at AS "createdAt"`,
+      [parsed.name.trim(), normalizedEmail, normalizedStudentId, passwordHash, parsed.role]
+    );
+    const createdUser = insertResult.rows[0];
 
-  const user = insertResult.rows[0];
+    // Auto-enroll newly registered students into existing courses so their dashboard is populated immediately
+    if (createdUser.role === 'student') {
+      await client.query(
+        `INSERT INTO course_enrollments (course_id, student_id)
+         SELECT id, $1 FROM courses
+         ON CONFLICT (course_id, student_id) DO NOTHING`,
+        [createdUser.id]
+      );
+    }
+
+    return createdUser;
+  });
+
   const token = signToken(user);
 
   res.status(201).json({ token, user });
